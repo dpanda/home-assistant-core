@@ -1,0 +1,13 @@
+{
+  "domain": "trenord",
+  "name": "Trenord",
+  "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/trenord",
+  "requirements": [],
+  "ssdp": [],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [],
+  "codeowners": ["@dpanda"],
+  "iot_class": "local_polling"
+}
