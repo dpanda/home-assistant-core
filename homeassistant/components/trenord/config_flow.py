@@ -17,20 +17,9 @@ from .trenord_apis import TrenordApi
 _LOGGER = logging.getLogger(__name__)
 
 # TOD adjust the data schema to the data that you need
-STEP_USER_DATA_SCHEMA = vol.Schema({vol.Required("train_ids"): [str]})
-
-
-class TrenordTrain:
-    """Train details got from APIs."""
-
-    # def __init__(self, train_id: str) -> None:
-    #    self.train_id = train_id
-
-    async def check_train_details(self, train_id: str) -> bool:
-        """Check if provided train id exists."""
-
-        TrenordApi().get_train(train_id)
-        return True
+STEP_USER_DATA_SCHEMA = vol.Schema(
+    {vol.Required("train_id", description="Id del treno"): str}
+)
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -38,27 +27,19 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 
     Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
     """
-    # TOD validate the data can be used to set up a connection.
+    api = TrenordApi()
 
-    # If your PyPI package is not built with async, pass your methods
-    # to the executor:
-    # await hass.async_add_executor_job(
-    #     your_validate_func, data["username"], data["password"]
-    # )
-    validator = TrenordTrain()
+    train = await hass.async_add_executor_job(api.get_train, data["train_id"])
 
-    train_ids = data["train_ids"]
-    for train_id in train_ids:
-        if not await validator.check_train_details(train_id):
-            raise CannotConnect
-
-    # If you cannot connect:
-    # throw CannotConnect
-    # If the authentication is wrong:
-    # InvalidAuth
+    if train is None:
+        raise TrainNotFound
 
     # Return info that you want to store in the config entry.
-    return {}
+    return {
+        "title": train.name,
+        "id": train.train_id,
+        "departure_time": train.departure_time,
+    }
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -79,24 +60,27 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             info = await validate_input(self.hass, user_input)
-        except CannotConnect:
-            errors["base"] = "cannot_connect"
-        except InvalidAuth:
-            errors["base"] = "invalid_auth"
+            await self.async_set_unique_id(info["id"])
+            self._abort_if_unique_id_configured()
+
+            config_entry_data = {"train_id": info["id"], "train_name": info["title"]}
+
+        except TrainNotFound:
+            errors["base"] = "train_not_found"
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
-            return self.async_create_entry(title=info["title"], data=user_input)
+            return self.async_create_entry(title=info["title"], data=config_entry_data)
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
 
 
+class TrainNotFound(HomeAssistantError):
+    """Provided train id is wrong."""
+
+
 class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""
-
-
-class InvalidAuth(HomeAssistantError):
-    """Error to indicate there is invalid auth."""
