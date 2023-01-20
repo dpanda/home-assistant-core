@@ -39,6 +39,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         "title": train.name,
         "id": train.train_id,
         "departure_time": train.departure_time,
+        "arrival_time": train.arrival_time,
     }
 
 
@@ -60,10 +61,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             info = await validate_input(self.hass, user_input)
-            await self.async_set_unique_id(info["id"])
-            self._abort_if_unique_id_configured()
+            # await self.async_set_unique_id(info["id"])
+            # self._abort_if_unique_id_configured()
 
-            config_entry_data = {"train_id": info["id"], "train_name": info["title"]}
+            config_entry_data = {
+                "train_id": info["id"],
+                "train_name": info["title"],
+                "departure_time": info["departure_time"],
+                "arrival_time": info["arrival_time"],
+            }
 
         except TrainNotFound:
             errors["base"] = "train_not_found"
