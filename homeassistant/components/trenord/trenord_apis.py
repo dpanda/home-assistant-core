@@ -116,13 +116,13 @@ class TrenordApi:
             train_id,
             f"{line} {name} - {departure_time.strftime('%H:%M')} da {departure_station} per {direction}",
             self._get_status(
-                train["status"],
+                train["status"] if "status" in train else None,
                 json["cancelled"],
                 departure_station_id,
                 arrival_station_id,
                 suppression,
             ),
-            train["delay"],
+            0 if train["delay"] is None else train["delay"],
             departure_time,
             departure_station_id,
             departure_station,
@@ -143,7 +143,7 @@ class TrenordApi:
 
     def _get_status(
         self,
-        train_status: str,
+        train_status: str | None,
         cancelled: bool,
         departure_station_id: str,
         arrival_station_id: str,
