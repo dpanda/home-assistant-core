@@ -127,6 +127,11 @@ class TrainUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.info("Detected date change, refreshing train")
             return True
 
+        if self.data is not None:
+            # always allow first polling
+            _LOGGER.info("First polling (no previous data), refreshing train")
+            return True
+
         _LOGGER.debug(
             "Now: %s, arrival time %s %s, arrival time in the past: %s, departure time %s, dep. time in the future %s, delta from departure %s, delta < 30min %s",
             now,
@@ -144,8 +149,9 @@ class TrainUpdateCoordinator(DataUpdateCoordinator):
             delta = self.departure_time - now
             return delta < timedelta(minutes=30)
         if now > self.arrival_time:
-            # Arrival time in the past: do not allow polling
-            return False
+            # Arrival time in the past: allow polling only if wiithin 10 minutes of it
+            delta = now - self.arrival_time
+            return delta < timedelta(minutes=10)
         # We are during the train schedule: always poll
         return True
 
