@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from enum import Enum
+from itertools import takewhile
 import logging
 
 import pytz
@@ -19,6 +20,14 @@ class TrainStatus(Enum):
     CANCELLED = "CANCELLED"
 
 
+class TrainStationType(Enum):
+    """Enum station type."""
+
+    ORIGIN = "ORIGIN"
+    STOP = "STOP"
+    DESTINATION = "DESTINATION"
+
+
 class TrenordTrain:
     """DTO class for a Trenord train."""
 
@@ -33,6 +42,7 @@ class TrenordTrain:
         departure_station_name: str,
         arrival_time: datetime,
         suppression: TrenordTrainSuppression | None,
+        current_station: TrenordTrainCurrentStation | None,
     ) -> None:
         """Construct new instance."""
 
@@ -45,6 +55,7 @@ class TrenordTrain:
         self.departure_station_id = departure_station_id
         self.arrival_time = arrival_time
         self.suppression = suppression
+        self.current_station = current_station
 
 
 class TrenordTrainSuppression:
@@ -62,6 +73,25 @@ class TrenordTrainSuppression:
         self.from_station_name = from_station_name
         self.to_station_id = to_station_id
         self.to_station_name = to_station_name
+
+
+class TrenordTrainCurrentStation:
+    """DTO class for a Train Station."""
+
+    def __init__(
+        self,
+        station_id: str,
+        name: str,
+        station_type: TrainStationType,
+        arrival_time: datetime | None,
+        departure_time: datetime | None,
+    ) -> None:
+        """Construct new instance."""
+        self.station_id = station_id
+        self.name = name
+        self.station_type = station_type
+        self.arrival_time = arrival_time
+        self.departure_time = departure_time
 
 
 class TrenordApi:
@@ -112,6 +142,8 @@ class TrenordApi:
                 train["suppression_end"],
             )
 
+        current_station = self._get_current_station(entry["pass_list"])
+
         train_dto = TrenordTrain(
             train_id,
             f"{line} {name} - {departure_time.strftime('%H:%M')} da {departure_station} per {direction}",
@@ -121,6 +153,7 @@ class TrenordApi:
                 departure_station_id,
                 arrival_station_id,
                 suppression,
+                current_station,
             ),
             0 if train["delay"] is None else train["delay"],
             departure_time,
@@ -128,6 +161,7 @@ class TrenordApi:
             departure_station,
             arrival_time,
             suppression,
+            current_station,
         )
 
         _LOGGER.info("Train: %s", train_dto.__dict__)
@@ -148,16 +182,56 @@ class TrenordApi:
         departure_station_id: str,
         arrival_station_id: str,
         suppression: TrenordTrainSuppression | None,
+        current_station: TrenordTrainCurrentStation | None,
     ) -> TrainStatus:
         """Compute the train status from various attributes."""
-        if train_status == "V":
-            return TrainStatus.TRAVELLING
+        if (
+            current_station is not None
+            and current_station.station_type == TrainStationType.DESTINATION
+        ):
+            return TrainStatus.NONE
+        if (
+            suppression is not None
+            and suppression.from_station_id == departure_station_id
+            and suppression.to_station_id == arrival_station_id
+        ):
+            return TrainStatus.CANCELLED
         if cancelled is True:
             return TrainStatus.CANCELLED
-        if suppression is not None:
-            if (
-                suppression.from_station_id == departure_station_id
-                and suppression.to_station_id == arrival_station_id
-            ):
-                return TrainStatus.CANCELLED
+        if train_status == "V":
+            return TrainStatus.TRAVELLING
         return TrainStatus.NONE
+
+    def _get_current_station(
+        self, train_pass_list: list
+    ) -> TrenordTrainCurrentStation | None:
+        """Parse the last station passed by the train."""
+
+        passed_stations = list(
+            takewhile(
+                lambda x: not x["cancelled"]
+                and "actual_data" in x
+                and "actual_station_mir" in x["actual_data"]
+                and "actual_station_name" in x["actual_data"],
+                train_pass_list,
+            )
+        )
+
+        if len(passed_stations) == 0:
+            return None
+
+        last_passed_station = passed_stations[-1]
+
+        _LOGGER.info(last_passed_station)
+
+        return TrenordTrainCurrentStation(
+            last_passed_station["actual_data"]["actual_station_mir"],
+            last_passed_station["actual_data"]["actual_station_name"],
+            TrainStationType.DESTINATION
+            if last_passed_station["type"] == "D"
+            else TrainStationType.ORIGIN
+            if last_passed_station["type"] == "O"
+            else TrainStationType.STOP,
+            None,
+            None,
+        )

@@ -69,12 +69,12 @@ class TrainUpdateCoordinator(DataUpdateCoordinator):
 
     def __init__(
         self,
-        hass,
+        hass: HomeAssistant,
         train_id: str,
         name: str,
         departure_time: datetime | str,
         arrival_time: datetime | str,
-    ):
+    ) -> None:
         """Initialize the train update coordinator."""
         super().__init__(
             hass,
@@ -127,7 +127,7 @@ class TrainUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.info("Detected date change, refreshing train")
             return True
 
-        if self.data is not None:
+        if self.data is None:
             # always allow first polling
             _LOGGER.info("First polling (no previous data), refreshing train")
             return True
@@ -162,6 +162,7 @@ class TrainSensorStatus(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = [state.name for state in TrainStatus]
     _attr_icon = "mdi:train-variant"
+    _attr_current_station_name: str | None = None
 
     def __init__(self, coordinator, train_name):
         """Pass coordinator to CoordinatorEntity."""
@@ -172,8 +173,17 @@ class TrainSensorStatus(CoordinatorEntity, SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         train = self.coordinator.data
-        self._attr_native_value = train.status.name
-        self.async_write_ha_state()
+
+        if train is not None and train.status is not None:
+            self._attr_native_value = train.status.name
+            if train.current_station is not None:
+                self._attr_current_station_name = train.current_station.name
+            self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        """Return the extra state attributes."""
+        return {"current_station_name": self._attr_current_station_name}
 
 
 class TrainSensorDelay(CoordinatorEntity, SensorEntity):
@@ -193,6 +203,8 @@ class TrainSensorDelay(CoordinatorEntity, SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         train = self.coordinator.data
+        if train is None:
+            return
 
         now = datetime.now(tz.gettz("Europe/Rome"))
 
@@ -208,33 +220,42 @@ class TrainSensorSuppression(CoordinatorEntity, BinarySensorEntity):
     """Sensor mapping partial or full suppression of the train."""
 
     _attr_icon = "mdi:train-variant"
+    _attr_suppression_from_station_name: str | None = None
+    _attr_suppression_to_station_name: str | None = None
 
     def __init__(self, coordinator, train_name):
         """Pass coordinator to CoordinatorEntity."""
         super().__init__(coordinator)
         self._attr_name = f"{train_name} - Cancellazioni"
-        self._attr_from_station_name = None
-        self._attr_to_station_name = None
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         train = self.coordinator.data
 
+        if train is None:
+            return
+
         now = datetime.now(tz.gettz("Europe/Rome"))
 
-        if train.arrival_time > now:
-            if train.suppression is not None:
-                self._attr_is_on = True
-                self._attr_from_station_name = train.suppression.from_station_name
-                self._attr_to_station_name = train.suppression.to_station_name
-            else:
-                self._attr_is_on = False
-                self._attr_to_station_name = None
-                self._attr_from_station_name = None
+        if train.arrival_time > now and train.suppression is not None:
+            self._attr_is_on = True
+            self._attr_suppression_from_station_name = (
+                train.suppression.from_station_name
+            )
+            self._attr_suppression_to_station_name = train.suppression.to_station_name
         else:
-            # reset the value after train has arrived
+            # reset the value if suppression is false or after train has arrived
             self._attr_is_on = False
-            self._attr_to_station_name = None
-            self._attr_from_station_name = None
+            self._attr_suppression_from_station_name = None
+            self._attr_suppression_to_station_name = None
+
         self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        """Return the extra state attributes."""
+        return {
+            "suppression_from_station_name": self._attr_suppression_from_station_name,
+            "suppression_to_station_name": self._attr_suppression_to_station_name,
+        }
